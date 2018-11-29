@@ -1,0 +1,1273 @@
+---
+title: "Forecasting Solar Radiation"
+output: 
+    html_notebook:
+        toc: True
+        toc_float:
+            collapsed: False
+        toc_depth: 5
+        number_sections: true
+---
+
+
+
+
+# Objective 
+
+The aim of the project is to use Forecasting techniques to model and predict the series of monthly average horizontal solar radiation between January 1960 and December 2014. The task is to find the best fitting forecasting model and then give 2 years ahead forecast. 
+
+
+
+# Libraries
+
+```{r,results='hide'}
+# Load libraries
+library(TSA,quietly = TRUE)
+library(fpp2,quietly = TRUE)
+library(tidyverse,quietly = TRUE)
+```
+
+
+
+
+# Data Preparation 
+
+## Reading in Data
+
+```{r}
+# Reading in Data 
+solar <- read.csv("data1.csv",header = TRUE)
+head(solar)
+
+# Subsetting Variable of Interest
+solar <- solar$solar
+
+# Structure of Dataset
+str(solar)
+```
+
+
+
+
+
+
+
+
+## Missing Values
+
+Check for missing values in the series. 
+
+```{r}
+# Missing Values
+
+is.na(solar) %>% summary()
+```
+
+
+There are no missing values in the series. 
+
+
+
+## Create Train and Test Split
+
+Create a train and test split with approximately 80% train and rest test. But this value will be adjusted so that the first observation of the test series is January. 
+Because the data is seasonal (monthly) we try to find the row number which gives a remainder of 1 when divided by 12 (nearest to the 80% of the data).
+
+
+```{r}
+# Observation No to Split 
+length(solar) * 0.80
+
+# Modulus of 528
+528 %% 12
+
+# Modulus of 529
+529 %% 12 # 1. The test set starts at the 529th observation of solar series. 
+
+
+```
+
+The test set should start at the 529th observation and the train set should end at the 528th observation. 
+
+
+```{r}
+# Create Train Set
+solarTrain <- window(x = solar,end = 528)
+
+# Create Test Set
+solarTest <- window(x = solar,start = 529)
+
+```
+
+
+
+## Create TS Object
+
+The data is monthly, so the frequency of the series is 12. Convert both the train and test sets to a time series object with frequency of 12. 
+
+```{r}
+# Train Series Conversion to TS
+solarTrain <- ts(data = solarTrain,start = c(1960,1),frequency = 12)
+head(solarTrain)
+str(solarTrain)
+
+# Test Series Conversion to TS
+solarTest <- ts(data = solarTest,start = c(2004,1),frequency = 12)
+head(solarTest)
+str(solarTest)
+
+```
+
+
+
+
+
+# Data Exploration
+
+The data exploration step involves trying to understand the characteristics of the series. 
+
+
+
+
+## Time Series Plot 
+
+The time series plot of training set is below.
+
+```{r}
+# Time Series Plot 
+autoplot(solarTrain) + 
+    ggtitle("Time Series Plot of Solar Radiation")
+```
+
+
+The time series plot shows the following characteristics: 
+
+1. Seasonal Pattern: A clear seasonal pattern is seen in the plot. 
+2. Trend: There is no visible trend in the data. 
+3. The seasonal patterns vary across the series. 
+
+
+
+## ACF Plot
+
+Plot the ACF Plot for the training set and check for any characteristics. 
+
+```{r}
+# ACF of Train Set
+ggAcf(solarTrain) + ggtitle("ACF of Solar Radiation")
+
+```
+
+The ACF plot shows a seasonal pattern with frequency 12. Also, there is no sign of trend. 
+
+
+
+
+## Seasonal Subseries Plot
+
+
+Plot the seasonal subseries plot to check the seasonal pattern between seasons and within seasons. 
+
+```{r}
+# Seasonal Subseries Plot 
+ggsubseriesplot(x = solarTrain) + ggtitle("Seasonal Subseries Plot of Solar Radiation")
+```
+
+The mean radiation is lowest during the start and the end of the year and highest during mid year (June, July). Within each month there is a lot of variation in the solar radiation values. 
+
+
+
+
+## ARMA Characteristics
+
+We check the possible ARMA characteristics for the series. 
+
+```{r}
+
+# Stationarity of Solar Radiation Data 
+
+# AdfTest
+ar(diff(solarTrain)) # Selected 27 lags
+fUnitRoots::adfTest(solarTrain,lags = 27)# P Value 0.36, so accept null hypothesis of non stationarity
+
+
+# Seasonal Difference Series
+solarDiff <- diff(solarTrain,lag = 12)
+
+# Adf of Differenced Series
+ar(diff(solarDiff)) # Lags selected 24
+fUnitRoots::adfTest(x = solarDiff,lags = 24)#p value 0.01 Accept alternate hypothesis of stationarity
+
+
+# EACF of Differenced Series
+eacf(z = solarDiff)# indicates AR 2 and MA 2
+
+
+# ARMA Subsets
+plot(armasubsets(solarDiff,nar = 5,nma = 5))# AR 2 and MA 1 
+```
+
+
+
+The possible SARIMA Models indicated are ARIMA(0,0,0)x(2,1,1 or 2). The idea here is not to find an ARIMA model, but the above indicates that ARIMA models can also be explored in addition to models incorporatin Trend and Seasonality. 
+
+
+
+
+
+
+# Analysis 
+
+We consider models which deal with characteristics of trend and seasonality and also models that deal with Autocorrelation structure. 
+
+Initially we apply some basic forecasting methods before moving to advanced methods. We use the MASE values to compare the models. 
+
+
+
+## Methodology
+
+The following methodology is applied to all models. 
+
+1. Model Fitting     
+
+In this step we fit the different models to the training data.   
+
+
+ 
+ 
+2. Plot of Model Fit       
+
+The model is plotted by overlaying the fitted model on the Training series.      
+
+
+3. Accuracy on Training Data     
+
+The accuracy on Training data using MASE values in measured.     
+
+
+4. Residual Plots     
+
+We check the residual plots. Mainly we check the autocorrelation in the ACF of the residuals and time plot of residuals. In the autocorrelation we would like to see no autocorrelation and in the time plot we would ideally like to see no patterns and no changing variance of the residuals.         
+
+
+5. Residual Statistics      
+
+We check the mean of residuals and Shapiro Wilk test to check normality of residuals. The mean should be zero and normality is ideal.      
+
+
+In the residuals, the autocorrelation and mean of residuals are important as far the point forecasts are concerned. The normality and changing variance affect the prediction intervals of the point forecast.      
+
+
+6. Test Prediction      
+
+We get the forecast for the test series and then get the accuracy using MASE between the predictions and actual test series. If the residuals are not normal then we can use the bootstrap method to calculate prediction intervals.        
+
+
+
+7. Forecast Plot      
+
+The forecasts are plotted to how it compares with the series.       
+
+
+8. Observations    
+
+Summarize the model information and update the results in the results data frame.      
+
+
+
+The results of the models will be stored in a data frame. 
+
+Creating the data frame below:
+
+```{r}
+# Results Data Frame
+modelResults <- data.frame(
+    Model = character(),
+    TrainAcc. = numeric(),
+    TestAcc. = numeric(),
+    Res.Autocorr = character(),
+    Res.Variance = character(),
+    Res.Timeplot = character(),
+    Res.Mean = numeric(),
+    Res.Normality = character(),
+    stringsAsFactors = FALSE
+) 
+
+
+# Setting Forecast Length 
+h <- length(solarTest)
+```
+
+
+
+# Seasonal Naive Model
+
+In the seasonal Naive method the forecast is set to the value observed in the same month of the last year. 
+
+
+## Model Fitting
+
+```{r}
+# Seasonal Naive Method on Original Data 
+seasNaive <- snaive(y = solarTrain,h = h)
+
+
+```
+
+
+## Plot of Model Fit
+
+```{r,fig.width= 7}
+# Plot of Model Fit on Train Data 
+autoplot(seasNaive,fcol = NA,PI = FALSE) +
+    autolayer(object = fitted(seasNaive)) + 
+    ggtitle("Plot of Model Fit on Training Series")
+
+```
+
+
+
+## Accuracy on Training Data
+
+```{r}
+# Accuracy on Training Set 
+accuracy(f = seasNaive)# MASE 1
+
+```
+
+
+
+
+
+## Residual Plots
+
+Analyse the residuals plots of the Model Fit.
+
+```{r}
+# Residual Plots of Train Data
+checkresiduals(seasNaive)
+
+```
+
+
+Autocorrelation: The ACF plot and Ljung Box test indicate presence of autocorrelation in the series. 
+
+Constant Variance: The variance of the residuals is also not constant as seen in the time plot of residuals. Also patterns in the time plot shows the fit is not good. 
+
+
+
+## Residual Statistics 
+
+```{r}
+# Mean of Residuals of Train Data 
+mean(resid(seasNaive),na.rm = TRUE)
+
+# Normality of Residuals of Train Data
+shapiro.test(x = seasNaive$residuals)# Null: Normality 
+
+```
+
+
+Mean of Residuals: The mean of residuals should ideally be close to 0. But here it is 0.045, so the fit is not very good.
+
+
+Normality of Residuals: The Shapiro Wilk test indicates that the residuals are not normal. 
+
+
+
+## Test Prediction
+
+We apply the model on the test set and get accuracy measures.  
+
+```{r}
+# Generate forecasts from model
+seasNaiveFcast <- forecast(object = seasNaive,h = h,simulate = TRUE,bootstrap = TRUE)
+
+
+
+# Compare Accuracy With Test Set for Predictions 
+seasNaiveTestAcc <- accuracy(f = seasNaiveFcast,x = solarTest)
+seasNaiveTestAcc
+
+```
+
+
+The MASE value for the training set is 1, while for the test set it is 0.424, which means it actually does better on the test set. 
+
+
+
+## Forecast Plot
+
+```{r}
+autoplot(seasNaiveFcast)
+```
+
+
+
+## Observations 
+
+The seasonal naive method gives a MASE of 0.424 on the test data but there are issues with the residuals with autocorrelation, non normality.     
+
+
+Adding the results to Results dataframe. 
+
+```{r}
+# Update modelResults
+
+#c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")#
+
+# Train Data Results
+seasNaiveResult <- data.frame("Seasonal Naive",1,0.424,"Present","Present","Pattern",0.045,"Non Normality",stringsAsFactors = FALSE)
+
+names(seasNaiveResult) <- c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
+
+
+modelResults <- rbind(modelResults,seasNaiveResult)
+
+
+rm(seasNaive,seasNaiveFcast,seasNaiveResult,seasNaiveTestAcc)
+
+```
+
+
+
+
+
+# **Linear Seasonal Model** 
+
+This model fits a linear model to the data, with the predictor being the seasonal periods in the data. 
+
+
+
+## Model Fitting
+
+```{r}
+# Linear Seasonal Model on Train Data 
+lin <- tslm(formula = solarTrain ~ season)
+summary(lin)
+
+```
+
+
+The linear model on Train data is significant overall and has an adjusted R Square of 0.5475. 
+
+
+## Plot of Model Fit
+
+```{r}
+# Plot of Model Fit on Train Data 
+autoplot(solarTrain,fcol = NA,PI = FALSE) +
+    autolayer(object = fitted(lin)) + 
+    ggtitle("Plot of Linear Model Fit on Training Series")
+
+```
+
+
+
+## Accuracy on Training Data
+
+```{r}
+# Accuracy on Training Set
+accuracy(f = lin)# MASE 0.5615
+
+```
+
+
+
+The training accuracy of the linear model is MASE 0.561
+
+
+
+
+
+## Residual Plots
+
+Analyse the residuals plots of the Model Fit.
+
+```{r}
+# Residual Plots of Train Data
+checkresiduals(lin)
+
+# Fitted vs Residuals
+plot(x = lin$fitted.values,y = lin$residuals ,xlab = "Fitted Values",ylab = "Residuals",main = "Residuals Plot vs Fitted") 
+
+
+```
+
+
+Autocorrelation:  There is still autocorrelations in the residuals of the model.      
+
+Constant Variance: There is changing variance in the residuals. Also the fit of the model is not good since there are patterns in the data.       
+
+
+The fitted values against the predictor also shows a changing variance which indicates the fit could be improved. 
+
+
+## Residual Statistics 
+
+```{r}
+# Mean of Residuals of Train Data 
+mean(resid(lin),na.rm = TRUE)
+
+# Normality of Residuals of Train Data
+shapiro.test(x = lin$residuals)# Null: Normality 
+
+```
+
+
+
+
+The model has almost zero mean for residuals and non normal residuals. 
+
+
+
+
+## Test Prediction
+
+We apply the model on the test set and get accuracy measures.  
+
+```{r}
+# Generate forecasts for Train Data 
+linFcast <- forecast(object = lin,h = h,simulate = TRUE,bootstrap = TRUE)
+
+# Compare Accuracy With Test Set
+linTestAcc <- accuracy(f = linFcast,x = solarTest)
+linTestAcc
+
+```
+
+
+
+The linear model gives a MASE of 0.3704 on the test set. 
+
+
+## Forecast Plot
+
+```{r}
+autoplot(object = linFcast)
+```
+
+
+
+
+
+## Observations 
+
+The linear model gives a better result than the Seasonal Naive model on the test set  with a MASE of 0.370, but the residuals again have correlation which indicates that the model fitting is not very good.
+
+
+
+Adding the results to Results dataframe. 
+
+```{r}
+# Update modelResults
+
+#c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")#
+
+# Train Data Results
+linResult <- data.frame("Linear Model",0.5615,0.370,"Present","Present","Pattern",2.414*10^-16,"Non Normality",stringsAsFactors = FALSE)
+
+names(linResult) <- c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
+
+
+modelResults <- rbind(modelResults,linResult)
+
+
+rm(lin,linFcast,linResult,linTestAcc)
+```
+
+
+
+
+
+
+# **STL Decomposition**
+
+This models is the Seasonal and Trend Decomposition using loess method. It is primarily a decomposition method but can be used to produce forecasts. 
+
+
+## Model Fitting
+
+```{r}
+# STL Model on Train Data 
+stl <- stlf(y = solarTrain,h = h,s.window = 15,method = "ets",etsmodel = "ZNN")
+
+```
+
+
+The STLF function applies the STF method. The seasonal component is estimated and then the seasonally adjusted data is estimated using a trend model. Then the trend and seasonal values are combined to give forecasts. 
+
+
+
+## Plot of Model Fit
+
+```{r}
+# Plot of Model Fit on Train Data 
+autoplot(stl,fcol = NA,PI = FALSE) +
+    autolayer(object = fitted(stl)) + 
+    ggtitle("Plot of STL Model Fit on Training Series")
+
+```
+
+
+
+
+## Accuracy on Training Data
+
+```{r}
+# Accuracy on Training Set for Train Data
+accuracy(f = stl)# MASE 0.217
+
+```
+
+The training accuracy of the linear model is MASE 0.217
+
+
+
+
+## Residual Plots
+
+Analyse the residuals plots of the Model Fit.
+
+```{r}
+# Residual Plots of Train Data
+checkresiduals(stl)
+
+```
+
+
+Autocorrelation:  There is still autocorrelations in the residuals of the model.      
+
+Constant Variance: There is changing variance in the residuals. Also the fit of the model is not good since there are patterns in the data.       
+
+But this model seems better than the previous models in terms of residuals even though this is also not error free. 
+
+
+
+## Residual Statistics 
+
+```{r}
+# Mean of Residuals of Train Data 
+mean(resid(stl),na.rm = TRUE)
+
+# Normality of Residuals of Train Data
+shapiro.test(x = stl$residuals)# Null: Normality 
+
+```
+
+The model has almost zero mean for residuals and non normal residuals.
+
+
+## Test Prediction
+
+We apply the model on the test set and get accuracy measures.  
+
+```{r}
+# Generate forecasts for Train Data 
+stlFcast <- forecast(object = stl,h = h,simulate = TRUE,bootstrap = TRUE)
+
+# Compare Accuracy With Test Set
+stlTestAcc <- accuracy(f = stlFcast,x = solarTest)
+stlTestAcc
+
+```
+
+
+
+The STL model gives a MASE of 0.380 on the test set. 
+
+
+## Forecast Plot
+
+```{r}
+autoplot(object = stlFcast)
+```
+
+
+
+
+## Observations 
+
+The STL Model has almost equivalent performance on the test set as compared to the Linear Model, but gives better residuals although the residuals of this model also have autocorrelation and changing variance and non normality. 
+
+
+Adding the results to Results dataframe. 
+
+```{r}
+# Update modelResults
+
+#c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")#
+
+# Train Data Results
+stlResult <- data.frame("STL Model",0.217,0.380,"Present","Present","Pattern",0.00616,"Non Normality",stringsAsFactors = FALSE)
+
+names(stlResult) <- c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
+
+
+modelResults <- rbind(modelResults,stlResult)
+
+
+rm(stl,stlFcast,stlResult,stlTestAcc)
+```
+
+
+
+
+# **Holt Winters Model**
+
+Here we apply the Holt Winters Seasonal Model. There are two models we apply, one with additive seasonality and one with multiplicative. 
+
+
+## Model Fitting
+
+```{r}
+# Holt Winters Additive Model on Train Data 
+hwAdd <- hw(y = solarTrain,h = h,seasonal = "additive",initial = "optimal")
+
+# Holt Winters Multiplicative Model on Train Data
+hwMult <- hw(y = solarTrain,h = h,seasonal = "multiplicative",initial = "optimal")
+
+```
+
+
+## Plot of Model Fit
+
+```{r}
+# Plot of Additive Model Fit on Train Data 
+autoplot(hwAdd,fcol = NA,PI = FALSE) +
+    autolayer(object = fitted(hwAdd)) + 
+    ggtitle("Plot of Holt Winters Additive Model Fit on Training Series")
+
+
+# Plot of Multiplicative Model Fit on Train Data 
+autoplot(hwMult,fcol = NA,PI = FALSE) +
+    autolayer(object = fitted(hwMult)) + 
+    ggtitle("Plot of Holt Winters Multiplicative Model Fit on Training Series")
+
+
+```
+
+
+
+
+## Accuracy on Training Data
+
+```{r}
+# Accuracy on Training Set for Additive Model
+accuracy(f = hwAdd)# MASE 0.189
+
+# Accuracy on Training Set for Multiplicative Model
+accuracy(f = hwMult)# MASE 0.1871
+
+
+```
+
+The training accuracy of the Additive Model is 0.189 and the Multiplicative Model is 0.187
+
+
+
+## Residual Plots
+
+Analyse the residuals plots of the Model Fit.
+
+```{r}
+# Residual Plots of Additive Model
+checkresiduals(hwAdd)
+
+
+# Residual Plots of Multiplicative Model
+checkresiduals(hwMult)
+
+```
+
+
+
+Both Models have some seasonal autocorrelation left in them as seen with the positive lags in the ACF at Lag 12 and 24 and also indicated in Ljung Box test which is significant at 0.05.
+
+
+Both Models also show changing variance in the residuals. 
+
+
+
+## Residual Statistics 
+
+```{r}
+# Mean of Residuals of Additive Model 
+mean(resid(hwAdd),na.rm = TRUE)
+
+# Normality of Residuals of Additive Model
+shapiro.test(x = hwAdd$residuals)# Null: Normality 
+
+
+# Mean of Residuals of Multiplicative Model 
+mean(resid(hwMult),na.rm = TRUE)
+
+# Normality of Residuals of Additive Model
+shapiro.test(x = hwMult$residuals)# Null: Normality 
+
+
+```
+
+
+Both models have non normal residuals and the mean of residuals is almost zero for the multiplicative model but for the additive model -0.1 which may indicate bias in the fit. 
+
+
+
+## Test Prediction
+
+We apply the model on the test set and get accuracy measures.  
+
+```{r}
+# Generate forecasts for Additive Model 
+hwAddFcast <- forecast(object = hwAdd,h = h,simulate = TRUE,bootstrap = TRUE)
+
+# Generate forecasts for Multiplicative Model 
+hwMultFcast <- forecast(object = hwMult,h = h,simulate = TRUE,bootstrap = TRUE)
+
+
+# Compare Accuracy of Additive Model With Test Set
+hwAddTestAcc <- accuracy(f = hwAddFcast,x = solarTest)
+hwAddTestAcc
+
+
+# Compare Accuracy With Multiplicative Model Test Set
+hwMultTestAcc <- accuracy(f = hwMultFcast,x = solarTest)
+hwMultTestAcc
+
+
+```
+
+
+
+
+
+
+
+## Forecast Plot
+
+```{r}
+# Plot of Additive Model
+autoplot(object = hwAddFcast)
+
+
+# Plot of Multiplicative Model
+autoplot(object = solarTrain,series = "Training Data") +
+    autolayer(hwMult$fitted,series = "Training Fitted") +
+    autolayer(hwMultFcast$mean,series = "Predicted") +
+    autolayer(solarTest,series = "Test Values")
+
+```
+
+
+
+## Observations 
+
+
+Adding the results to Results dataframe. 
+
+```{r}
+# Update modelResults
+
+#c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")#
+
+# Additive Model Result 
+hwAddResult <- data.frame("HW Additive",0.23,0.377,"Present","Present","Pattern",-0.143,"Non Normality",stringsAsFactors = FALSE)
+
+names(hwAddResult) <- c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
+
+
+
+# Multiplicative Model Result 
+hwMultResult <- data.frame("HW Multiplicative",0.187,0.398,"Present","Present","Pattern",0.024,"Non Normality",stringsAsFactors = FALSE)
+
+names(hwMultResult) <- c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
+
+modelResults <- rbind(modelResults,hwAddResult,hwMultResult)
+
+
+rm(hwAdd,hwMult,hwAddFcast,hwMultFcast,hwAddResult,hwMultResult,hwAddTestAcc,hwMultTestAcc)
+```
+
+
+
+# **ETS Models**
+
+The ETS Models are a group of models based on the Exponential Smoothing models of which Holt Winters is a part. The ETS models also model the error terms and provide different options for the optimization criterion for parameter estimation. 
+
+
+## Model Fitting
+
+
+
+```{r}
+# ETS Model (Z,N,A) 
+etsZNA <- ets(y = solarTrain,model = 'ZNA')
+
+# ETS Model (Z,N,M) 
+etsZNM <- ets(y = solarTrain,model = 'ZNM')
+
+# Auto Ets
+etsauto <- ets(y = solarTrain)
+
+```
+
+
+
+## Plot of Model Fit
+
+```{r}
+# Plot of ETS(Z,N,A)
+autoplot(solarTrain,fcol = NA,PI = FALSE) +
+    autolayer(fitted(etsZNA),series = "Training Fit") +
+ ggtitle("Plot of ETS(Z,N,A) on Training Series")
+
+
+# Plot of ETS(Z,N,M)
+autoplot(solarTrain,fcol = NA,PI = FALSE) +
+    autolayer(fitted(etsZNM),series = "Training Fit") +
+ ggtitle("Plot of ETS(Z,N,M) on Training Series")
+
+
+# Plot of ETS()
+autoplot(solarTrain,fcol = NA,PI = FALSE) +
+    autolayer(fitted(etsauto),series = "Training Fit") +
+ ggtitle("Plot of ETS Auto on Training Series")
+
+
+```
+
+
+## Accuracy on Training Data
+
+```{r}
+# Accuracy of ETS(Z,N,A)
+accuracy(f = etsZNA)# MASE 0.2366
+
+# Accuracy of ETS(Z,N,M)
+accuracy(f = etsZNM)# MASE 0.3267
+
+# Accuracy of ETS Auto
+accuracy(f = etsauto)# MASE 0.2227
+
+
+
+```
+
+
+
+
+## Residual Plots
+
+Analyse the residuals plots of the Model Fit.
+
+```{r}
+# Residual Plots of ETS(Z,N,A) Model
+checkresiduals(etsZNA)
+
+
+# Residual Plots of ETS(Z,N,M) Model
+checkresiduals(etsZNM)
+
+# Residual Plots of ETS Auto Model
+checkresiduals(etsauto)
+
+```
+
+
+
+
+
+
+## Residual Statistics 
+
+```{r}
+# Mean and Normality of Residuals of ETS(Z,N,A) 
+mean(resid(etsZNA),na.rm = TRUE);shapiro.test(x = resid(etsZNA))
+
+# Mean and Normality of Residuals of ETS(Z,N,M) 
+mean(resid(etsZNM),na.rm = TRUE);shapiro.test(x = resid(etsZNM))
+
+# Mean and Normality of Residuals of ETS Auto 
+mean(resid(etsauto),na.rm = TRUE);shapiro.test(x = resid(etsauto))
+
+```
+
+
+
+
+
+## Test Prediction
+
+We apply the model on the test set and get accuracy measures.  
+
+```{r}
+# Generate forecasts for ETS(Z,N,A) Model 
+etsZNAFcast <- forecast(object = etsZNA,h = h,simulate = TRUE,bootstrap = TRUE)
+
+# Generate forecasts for ETS(Z,N,M) Model 
+etsZNMFcast <- forecast(object = etsZNM,h = h,simulate = TRUE,bootstrap = TRUE)
+
+
+# Generate forecasts for ETS Auto Model 
+etsAutoFcast <- forecast(object = etsauto,h = h,simulate = TRUE,bootstrap = TRUE)
+
+
+# Compare Accuracy of ETS(Z,N,A)
+etsZNATestAcc <- accuracy(f = etsZNAFcast,x = solarTest)
+etsZNATestAcc
+
+
+# Compare Accuracy of ETS(Z,N,M)
+etsZNMTestAcc <- accuracy(f = etsZNMFcast,x = solarTest)
+etsZNMTestAcc
+
+
+# Compare Accuracy of ETS Auto
+etsAutoTestAcc <- accuracy(f = etsAutoFcast,x = solarTest)
+etsAutoTestAcc
+
+
+```
+
+
+
+
+## Forecast Plot
+
+```{r}
+# Plot of ETS(Z,N,A)
+autoplot(object = etsZNAFcast) + 
+    autolayer(solarTest,series = "Test Set") +
+    ggtitle("Forecast Plot of ETS(Z,N,A) with Test Set")
+
+
+# Plot of ETS(Z,N,M)
+autoplot(object = etsZNMFcast) + 
+    autolayer(solarTest,series = "Test Set") +
+    ggtitle("Forecast Plot of ETS(Z,N,M) with Test Set")
+
+
+# Plot of ETS Auto
+autoplot(object = etsAutoFcast) + 
+    autolayer(solarTest,series = "Test Set") +
+    ggtitle("Forecast Plot of ETS Auto with Test Set")
+
+```
+
+
+
+## Observations 
+
+
+Adding the results to Results dataframe. 
+
+```{r}
+# Update modelResults
+
+#c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")#
+
+
+# ETS(Z,N,A)
+etsZNAResult <- data.frame("ETS(Z,N,A)",0.2366,0.3767,"Present","Present","Pattern",-0.006,"Non Normality",stringsAsFactors = FALSE)
+
+names(etsZNAResult) <-c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
+
+
+# ETS(Z,N,M)
+etsZNMResult <- data.frame("ETS(Z,N,M)",0.3267,0.8450,"Present","Present","Pattern",0.025,"Non Normality",stringsAsFactors = FALSE)
+
+names(etsZNMResult) <-c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
+
+
+# ETS Auto
+etsAutoResult <- data.frame("ETS Auto",0.2237,0.3750,"Present","Present","Pattern",0.007,"Non Normality",stringsAsFactors = FALSE)
+
+names(etsAutoResult) <-c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
+
+
+modelResults <- rbind(modelResults,etsZNAResult,etsZNMResult,etsAutoResult)
+
+rm(etsZNA,etsZNM,etsauto,etsZNAFcast,etsZNMFcast,etsAutoFcast,etsZNAResult,etsZNMResult,etsAutoResult,etsZNATestAcc,etsZNMTestAcc,etsAutoTestAcc)
+
+```
+
+
+
+
+# **ARIMA**
+
+A no of ARIMA Models were fit with different values of AR and MA for the seasonal characteristics. The best model is demonstrated here. 
+
+## Model Fitting
+
+```{r}
+# ARIMA Model 
+Arima <- Arima(y = solarTrain,order = c(0,0,0),seasonal = c(3,1,2))
+summary(Arima)
+```
+
+
+## Plot of Model Fit
+
+```{r}
+# Plot of Model Fit on Train Data 
+autoplot(solarTrain,fcol = NA,PI = FALSE) +
+    autolayer(Arima$fitted,series = "Fitted") +
+    ggtitle("Plot of Arima Model Fit on Training Series")
+
+```
+
+
+
+
+## Accuracy on Training Data
+
+```{r}
+# Accuracy on Training Set for Train Data
+accuracy(f = Arima)# MASE 0.6436
+
+```
+
+
+
+
+## Residual Plots
+
+Analyse the residuals plots of the Model Fit.
+
+```{r}
+# Residual Plots of Train Data
+checkresiduals(Arima)# AutoCorr and Pattern 
+
+```
+
+
+
+
+
+## Residual Statistics 
+
+```{r}
+# Mean of Residuals of Train Data 
+mean(resid(Arima),na.rm = TRUE) # 0.2365
+
+# Normality of Residuals of Train Data
+shapiro.test(x = Arima$residuals)# Null: Normality # Non normal
+
+```
+
+
+
+
+## Test Prediction
+
+We apply the model on the test set and get accuracy measures.  
+
+```{r}
+# Generate forecasts  
+ArimaFcast <- forecast(object = Arima,h = h)
+
+# Compare Accuracy With Test Set
+ArimaTestAcc <- accuracy(f = ArimaFcast,x = solarTest)
+ArimaTestAcc
+
+```
+
+Mase Value on Test Set of 0.3342
+
+
+
+## Forecast Plot
+
+```{r}
+autoplot(object = ArimaFcast)+
+    autolayer(solarTest,series = "Test Set") +
+    ggtitle("Prediction of Arima With Test Set")
+```
+
+
+
+
+## Observations
+
+Adding the results to Results dataframe. 
+
+```{r}
+# Update modelResults
+
+#c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")#
+
+# Train Data Results
+ArimaResult <- data.frame(" Arima",0.643,0.3342,"Present","Present","Pattern",0.2365,"Non Normality",stringsAsFactors = FALSE)
+
+names(ArimaResult) <- c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
+
+
+modelResults <- rbind(modelResults,ArimaResult)
+
+
+rm(Arima,ArimaFcast,ArimaResult,ArimaTestAcc)
+
+```
+
+
+
+
+
+ 
+ 
+ 
+# Final Model
+ 
+ Different models were fit which gave different MASE values and different residuals. The best models in terms of MASE on Test Set are given below:  
+ 
+```{r}
+#Sort Models on MASE on Test Set
+modelResults %>% arrange(TestAcc.)
+
+```
+
+
+The best two models were the Arima Model and the Linear Model. None of the models had good residuals because of the changing nature of the seasonality across the years in the series. The plot of the test and train data is below: 
+
+```{r}
+# Plot of the Train and Test Data 
+autoplot(solarTrain,series = "Training Data")+
+    autolayer(solarTest,series = "Test Data") +
+    ggtitle("Plot of Training and Test Data")
+```
+
+
+
+
+The final model is selected from the ARIMA model and Linear model based on the fit with the general characteristics of the entire series. 
+
+
+```{r}
+# Linear Model
+linFcast <- tslm(formula = solarTrain ~ season) %>% forecast(h = h,simulate = TRUE, bootstrap = TRUE)
+
+# Arima Model
+arimaFcast <- Arima(y = solarTrain,order = c(0,0,0),seasonal = c(3,1,2)) %>% forecast(h = h)
+
+
+# Comapring the Plots
+arima <- autoplot(arimaFcast,series = "Prediction") +
+    autolayer(solarTest,series = "Test Set")
+    
+linear <- autoplot(linFcast,series = "Prediction")+
+    autolayer(solarTest,series = "Test Set")
+
+gridExtra::grid.arrange(arima,linear,nrow = 2)
+
+# Residual Comparison
+
+checkresiduals(linFcast)
+checkresiduals(arimaFcast)
+```
+
+
+
+The autocorrelation and non normality is similar in both residuals and the fit on the test series is slightly better for the ARIMA model. But considering that there is not a big difference in the MASE values of the two models on the test set, the linear model would be better because its residuals in the time plot are better which is also indicated by the mean of the residuals over the training series which is almost 0. The mean of residuals of ARIMA model 0.26 which indicates not as good a fit. Also considering that the prediction intervals are almost similar for the two models, it would be better to select the Linear Model. 
+
+
