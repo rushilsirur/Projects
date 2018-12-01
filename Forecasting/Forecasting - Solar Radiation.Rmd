@@ -7,6 +7,10 @@ output:
             collapsed: False
         toc_depth: 5
         number_sections: true
+        
+author: 
+- name: Rushil Sirur
+
 ---
 
 
@@ -1102,7 +1106,7 @@ A no of ARIMA Models were fit with different values of AR and MA for the seasona
 
 ```{r}
 # ARIMA Model 
-Arima <- Arima(y = solarTrain,order = c(0,0,0),seasonal = c(3,1,2))
+Arima <- Arima(y = solarTrain,order = c(3,0,2),seasonal = c(1,1,1))
 summary(Arima)
 ```
 
@@ -1124,7 +1128,7 @@ autoplot(solarTrain,fcol = NA,PI = FALSE) +
 
 ```{r}
 # Accuracy on Training Set for Train Data
-accuracy(f = Arima)# MASE 0.6436
+accuracy(f = Arima)# MASE 0.2030
 
 ```
 
@@ -1137,7 +1141,7 @@ Analyse the residuals plots of the Model Fit.
 
 ```{r}
 # Residual Plots of Train Data
-checkresiduals(Arima)# AutoCorr and Pattern 
+checkresiduals(Arima)# No AutoCorr and No Pattern 
 
 ```
 
@@ -1149,7 +1153,7 @@ checkresiduals(Arima)# AutoCorr and Pattern
 
 ```{r}
 # Mean of Residuals of Train Data 
-mean(resid(Arima),na.rm = TRUE) # 0.2365
+mean(resid(Arima),na.rm = TRUE) # 0.0539
 
 # Normality of Residuals of Train Data
 shapiro.test(x = Arima$residuals)# Null: Normality # Non normal
@@ -1173,7 +1177,7 @@ ArimaTestAcc
 
 ```
 
-Mase Value on Test Set of 0.3342
+Mase Value on Test Set of 0.3732
 
 
 
@@ -1198,7 +1202,7 @@ Adding the results to Results dataframe.
 #c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")#
 
 # Train Data Results
-ArimaResult <- data.frame(" Arima",0.643,0.3342,"Present","Present","Pattern",0.2365,"Non Normality",stringsAsFactors = FALSE)
+ArimaResult <- data.frame(" Arima",0.2030,0.3732,"Not Present","Present","No Pattern",0.053,"Non Normality",stringsAsFactors = FALSE)
 
 names(ArimaResult) <- c("Model","TrainAcc.","TestAcc.","Res.Autocorr","Res.Variance","Res.Timeplot","Res.Mean","Res.Normality")
 
@@ -1219,7 +1223,8 @@ rm(Arima,ArimaFcast,ArimaResult,ArimaTestAcc)
  
 # Final Model
  
- Different models were fit which gave different MASE values and different residuals. The best models in terms of MASE on Test Set are given below:  
+
+Different models were fit which gave different MASE values and different residuals. The best models in terms of MASE on Test Set are given below:  
  
 ```{r}
 #Sort Models on MASE on Test Set
@@ -1228,46 +1233,53 @@ modelResults %>% arrange(TestAcc.)
 ```
 
 
-The best two models were the Arima Model and the Linear Model. None of the models had good residuals because of the changing nature of the seasonality across the years in the series. The plot of the test and train data is below: 
+The best two models were the Linear Model and Arima Model in terms of MASE on test set. We select the ARIMA Model as the best model because it has good residuals in terms of autocorrelation even though its accuracy on test set is marginally worse (0.003). 
+
+We can deal with the non normality in ARIMA model by generating prediction intervals using bootstrap method. The mean of the ARIMA model residuals is 0.053, which means the forecasts are slightly biased. We can deal with this by adding the mean of residuals to the forecasts. 
+
+We do the following below: 
+
+Creating the Model
 
 ```{r}
-# Plot of the Train and Test Data 
-autoplot(solarTrain,series = "Training Data")+
-    autolayer(solarTest,series = "Test Data") +
-    ggtitle("Plot of Training and Test Data")
+# Model Fit
+Arima <- Arima(y = solarTrain,order = c(3,0,2),seasonal = c(1,1,1))
+
+# Summary of Model
+summary(Arima)
+
+
+# Residual Mean
+m <- mean(Arima$residuals) # mean of residuals is 0.053
+
+```
+
+
+We deal with the non normality by using bootstrap prediction intervals and deal with the mean by adding the mean to the forecasts. 
+
+```{r}
+# Model Prediction
+ArimaFcast <- forecast(object = Arima,h = h,bootstrap = TRUE)
+
+# Adding the mean to the forecasts
+ArimaFcast$mean <- ArimaFcast$mean + m
+
+
+# Accuracy on Test Data with mean addition
+accuracy(f = ArimaFcast,x = solarTest) # MASE 0.3740
+
 ```
 
 
 
-
-The final model is selected from the ARIMA model and Linear model based on the fit with the general characteristics of the entire series. 
-
+The plot of the forecasts is as follows: 
 
 ```{r}
-# Linear Model
-linFcast <- tslm(formula = solarTrain ~ season) %>% forecast(h = h,simulate = TRUE, bootstrap = TRUE)
-
-# Arima Model
-arimaFcast <- Arima(y = solarTrain,order = c(0,0,0),seasonal = c(3,1,2)) %>% forecast(h = h)
-
-
-# Comapring the Plots
-arima <- autoplot(arimaFcast,series = "Prediction") +
-    autolayer(solarTest,series = "Test Set")
-    
-linear <- autoplot(linFcast,series = "Prediction")+
-    autolayer(solarTest,series = "Test Set")
-
-gridExtra::grid.arrange(arima,linear,nrow = 2)
-
-# Residual Comparison
-
-checkresiduals(linFcast)
-checkresiduals(arimaFcast)
+# Plot of Forecasts
+autoplot(ArimaFcast,series = "Forecast") +
+    autolayer(object = solarTest,series = "Test Set")
 ```
 
 
 
-The autocorrelation and non normality is similar in both residuals and the fit on the test series is slightly better for the ARIMA model. But considering that there is not a big difference in the MASE values of the two models on the test set, the linear model would be better because its residuals in the time plot are better which is also indicated by the mean of the residuals over the training series which is almost 0. The mean of residuals of ARIMA model 0.26 which indicates not as good a fit. Also considering that the prediction intervals are almost similar for the two models, it would be better to select the Linear Model. 
-
-
+With mean addition the MASE slightly increases to 0.374 from 0.3732. We still go ahead with this model since the change is negligible and residuals are good. From the models explored the best model was ARIMA(3,0,2)(1,1,1)[12].
