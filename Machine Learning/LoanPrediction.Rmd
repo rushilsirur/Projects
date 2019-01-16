@@ -1,0 +1,1445 @@
+---
+title: "Loan Prediction Problem"
+author: "Rushil Sirur"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+  html_notebook:
+    number_section: yes
+    theme: spacelab
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+
+# Objective 
+
+The data contains information about Home Loan Applications and information about the applicants and whether the loan application was successful or not. The problem is to create a model that can predict if a future applicant should be given a loan or not based on historic data. The problem is a classification problem with target variable as Loan_Status, with evaluation metric as accuracy.       
+
+The variable description is as follows:    
+
+Variable| Description
+--------|------------
+Loan_ID | Unique Loan ID
+Gender | Male / Female
+Married | Applicant Married (Y/N)
+Dependents | Number of Dependents
+Education | Applicant Education (Graduate / Undergraduate)
+Self_Employed | Self Employed (Y/N)
+ApplicantIncome | Applicant Income 
+CoapplicantIncome | Coapplicant Income
+Loan Amount | Loan Amount in Thousands
+Loan_Amount_Term | Term of Loan in Months
+Credit_History| Credit History Meets Guidelines
+Property_Area | Urban / Semi Urban / Rural
+Loan_Status | Loan Approved (Y/N)     
+
+
+
+# Library
+
+```{r,results='hide'}
+library(tidyverse,quietly = TRUE)
+library(caret,quietly = TRUE)
+library(caTools,quietly = TRUE)
+
+```
+
+
+# Data Import 
+
+Loading the data into R. 
+
+```{r Data Import}
+# Read Data Set
+data <- read.csv(file = "LoanPredictionTrain.csv",header = TRUE)
+
+# Check Dimensions of Read Data
+dim(data)# 614 13
+
+
+# View Data Subset
+head(data)
+tail(data)
+
+```
+
+
+The data is read into R is of the required dimension and has the required variables from data set. 
+
+
+# Data Structure
+
+Check if data is in tidy format and types of variables e.g. factor etc. Each row of the data corresponds to a loan application and other relevant information. The data is in tidy format.  
+
+
+Analyse the data types of variables: 
+
+
+```{r Data Types}
+# Data Types
+str(data)
+
+```
+
+
+The Loan_ID is read in as a factor, can be converted to character, but not necessary because it will not be used in the model.     
+
+The credit history variable is read in as integer, convert to a factor variable.     
+The Dependents variable if it has any grouping like 4+ or 5+ as one of its values, then keep as a factor or can explore converting to numeric. The rest of the variables seem to have proper type.       
+
+
+Converting the Credit History variable to a factor variable.       
+
+```{r Credit History Data Type}
+# Type change from Numeric to Factor
+data$Credit_History <- factor(data$Credit_History)
+
+str(data$Credit_History)
+
+```
+      
+      
+      
+Analyse values of Dependent variable. If the dependent variable has any value that indicates a group, then leave as a factor. 
+
+```{r Dependent Variable}
+# Values of Dependents Variable
+summary(data$Dependents)
+
+```
+
+Leave the dependents variable as a factor.           
+
+
+
+# Class Imbalance
+
+The classification problem is a binary classification problem, and the evaluation metric is accuracy. So if the there is class imbalance then the model may do well on the majority class giving a high accuracy but not do well on the minority class. Check the class distribution of the target variable.      
+
+```{r}
+# Class Distribution of target Variable
+prop.table(table(data$Loan_Status))
+
+```
+
+
+Approximately 1:2 ratio of distribution. Apply models on the data, and if they perform poorly on the minority class, then try imbalanced dataset methods like sampling or penalized models.     
+
+
+
+# Data Split 
+
+Split the original data into train and test sets. Ensure that both sets have the same distribution as original data for target variable. 
+
+```{r}
+# Random Sampling of Data
+# Create Index for Split
+set.seed(3343)
+trIndex <- sample.split(Y = data$Loan_Status,SplitRatio = 0.8)
+
+# Split Into Train & Test
+train <- data[trIndex==TRUE,]
+test <- data[trIndex==FALSE,]
+
+# Class Distribution for Both Splits
+prop.table(table(train$Loan_Status))
+prop.table(table(test$Loan_Status))
+
+rm(trIndex)
+```
+
+
+The data is split into train and test and the distribution in both the sets is similar to the original data set.          
+
+
+
+# Plausibility of Values
+
+We check if some of the variables take on impossible values. The variables which we check for are as follows:      
+
+1. Dependents < 0. 
+2. ApplicantIncome, CoApplicantIncome, Loan Amount, Loan_Amount_Term < 0.      
+
+
+
+
+```{r}
+
+# Dependents Variable
+## Rule for Dependents
+rule1 <- editrules::editset(expression(Dependents %in% c("0","1","2","3+")))
+
+## Applying Rule on Training Set
+rule1Violate <- editrules::violatedEdits(E = rule1,train)
+
+## Checking Violations
+summary(rule1Violate) # No violations 
+
+
+
+# ApplicantIncome Variable
+## Generate Rule 
+rule2 <- editrules::editset(expression(ApplicantIncome >= 0))
+
+## Apply Rule on Train
+rule2Violate <- editrules::violatedEdits(E = rule2,train)
+
+## Check Violations
+summary(rule2Violate)# No Violations 
+
+
+
+
+# CoapplicantIncome Variable
+## Generate Rule 
+rule3 <- editrules::editset(expression(CoapplicantIncome >= 0))
+
+## Apply Rule on Train
+rule3Violate <- editrules::violatedEdits(E = rule3,train)
+
+## Check Violations
+summary(rule3Violate)# No Violations 
+
+
+
+
+
+# Loan Amount Variable
+## Generate Rule 
+rule4 <- editrules::editset(expression(LoanAmount > 0))
+
+## Apply Rule on Train
+rule4Violate <- editrules::violatedEdits(E = rule4,train)
+
+## Check Violations
+summary(rule4Violate)# No Violations but 17 NA
+
+
+
+
+
+
+# Loan Amount Term Variable
+## Generate Rule 
+rule5 <- editrules::editset(expression(Loan_Amount_Term > 0))
+
+## Apply Rule on Train
+rule5Violate <- editrules::violatedEdits(E = rule5,train)
+
+## Check Violations
+summary(rule5Violate)# No Violations but 13 NA
+
+
+
+rm(rule1,rule2,rule3,rule4,rule5,rule1Violate,rule2Violate,rule3Violate,rule4Violate,rule5Violate)
+
+```
+
+     
+None of the variable checked have any violations of the rules, which indicates that there are not any values which may be deemed to be unreasonable.       
+
+
+
+
+
+# Missing Values
+
+## Check for Missing Values
+
+Check variables for missing values or NA in training set. 
+
+```{r Missing Values Check}
+summary(is.na(train))
+
+```
+
+
+Only three variables have missing values LoanAmount, Loan_Amount_Term and Credit_History.      
+
+
+
+## Deal with Missing Values
+
+Credit_History is a categorical variable hence instead of computing mode, we let the NA equal a level called unknown.  
+
+For the numeric variables we try mean or median imputation based on their distribution and try modelling. If the model does not do well, try imputation techniques using random forest, knn or PMM. Along with the mean / median imputation we create a dummy variable for the numeric variables to indicate if the original values are missing or not.       
+
+
+Dealing with Credit_History variable
+
+```{r Credit History}
+# Class
+class(train$Credit_History)
+
+# Convert Variable to Character
+train$Credit_History <- as.character(train$Credit_History)
+
+# Replace rows with NA as "NA"
+train$Credit_History[is.na(train$Credit_History)] <- "NA"
+
+# Convert Variable to Factor with new Levels
+train$Credit_History <- factor(x = train$Credit_History,levels = c("0","1","NA"))
+
+# Check Convertsion
+str(train$Credit_History)
+
+# Create Dummy Variable
+train <- mutate(.data = train,CreditHistoryMissing = if_else(condition = Credit_History=="NA",true = 1,false = 0))
+
+str(train)
+```
+
+
+
+Missing Values for LoanAmount
+
+```{r Loan Amount}
+# Distribution of LoanAmount
+qplot(x = LoanAmount,data = train)
+
+```
+
+The variable seems right skewed and hence median imputation can be used instead of mean. Also, we create a dummy variable to indicate which observations are missing and which are not.   
+
+```{r Loan Amount Imputation}
+# Median Imputation 
+medianLoanAmount <- Hmisc::impute(x = train$LoanAmount,median)
+
+# Saving the Median Loan Amount 
+loanAmountMedian <- medianLoanAmount[Hmisc::is.imputed(medianLoanAmount)][[1]]
+
+# Replacing the Imputed Variable in Loan Amount
+train$LoanAmount <- as.numeric(medianLoanAmount)
+
+# Creating Dummy Variable LoanAmountMissing
+train$LoanAmountMissing <- factor(x = Hmisc::is.imputed(medianLoanAmount),levels = c(FALSE,TRUE))
+
+
+
+```
+
+
+
+
+Missing Values for Loan_Amount_Term
+
+Replace missing values with Median and create dummy variable. 
+
+
+```{r Loan Amount Term}
+# Median Imputation 
+medianLoanAmountTerm <- Hmisc::impute(x = train$Loan_Amount_Term,median)
+
+#Saving the Median of LoanAmountTerm
+loanAmountTermMedian <- medianLoanAmountTerm[Hmisc::is.imputed(medianLoanAmountTerm)][[1]]
+
+# Replacing the Imputed Variable in Loan Amount
+train$Loan_Amount_Term <- as.numeric(medianLoanAmountTerm)
+
+# Creating Dummy Variable LoanAmountMissing
+train$LoanAmountTermMissing <- factor(x = Hmisc::is.imputed(medianLoanAmountTerm),levels = c(FALSE,TRUE))
+
+
+rm(medianLoanAmount,medianLoanAmountTerm)
+
+
+# Check Structure of Dataset
+summary(is.na(train))
+str(train)
+```
+
+
+The variables Gender, Married, Dependents and Self Employed have a level "" which is missing. Replace these values with NA. 
+
+```{r Categorical Features NA}
+# Gender
+levels(train$Gender)
+levels(train$Gender)[1] <- "NA"
+
+# Married
+levels(train$Married)
+levels(train$Married)[1] <- "NA"
+
+# Dependents
+levels(train$Dependents)
+levels(train$Dependents)[1] <- "NA"
+
+# Self Employed
+levels(train$Self_Employed)
+levels(train$Self_Employed)[1] <- "NA"
+
+str(train)
+
+```
+
+
+
+
+# Outliers
+
+Check for outliers in the numeric variables in the data and deal with them. 
+
+## Outlier Check
+
+```{r}
+# BoxPlot for ApplicantIncome and CoapplicantIncome
+train %>% select_if(.predicate = is.numeric) %>% select(ApplicantIncome,CoapplicantIncome) %>% boxplot() 
+
+
+# BoxPlot for LoanAmount and Loan_Amount_Term
+train %>% select_if(.predicate = is.numeric) %>% select(LoanAmount,Loan_Amount_Term) %>% boxplot() 
+
+```
+
+
+ApplicantIncome, CoapplicantIncome and LoanAmount have outliers and are right skewed, while Loan_Amount_Term are predominantly left skewed with outliers.     
+
+Though statistically there are outliers the values seem to plausible and not errors so we try to fit the models with outliers and then without outliers and see if the models are affected by the outliers.      
+
+There are ways we can deal with outliers if it affects the models. One, we can use transformations of variables to see if outliers are removed, secondly we can use clamping to clamp the values of variables to nearest non outlier value. Finally, we can also explore binning to deal with outliers.
+
+
+
+# Feature Engineering 
+
+We can derive new features from the existing features that may be used in the models. Initially, four new features are derived in addition to the Indicator variables created for missing values. They are as follows: 
+
+1. SingleIncome = If both ApplicantIncome and CoapplicantIncome > 0 then 0 else 1.
+2. TotalIncome = ApplicantIncome + CoapplicantIncome
+3. AppLOI = Applicant Loan to Income = Loan Amount * 1000 / ApplicantIncome
+4. TotalLOI = Total Loan to Income = Loan Amount * 1000 / TotalIncome
+
+The Loan Amounts are in thousands, hence multiplied by 1000. 
+
+```{r Feature Engineering}
+# Create Features
+train <- mutate(.data = train,SingleIncome = if_else(condition = ApplicantIncome > 0 & CoapplicantIncome > 0,true = 0,false = 1),TotalIncome = ApplicantIncome + CoapplicantIncome,AppLOI = (LoanAmount*1000) / ApplicantIncome,TotalLOI = (LoanAmount*1000) / TotalIncome)
+
+
+# Shift Target Feature to End
+## Location of Target Feature is 13th column in data frame
+train <- train[,c(1:12,14:20,13)]
+
+str(train)
+```
+
+
+
+
+# Data Exploration
+
+
+## Summary of Variables
+
+We check the summary of variables to check the mean and median of the numeric variables and also to check if there are still any missing values or errors.  
+
+```{r}
+# Library 
+library(mlr,quietly = TRUE)
+
+# Summary 
+summarizeColumns(obj = train)[c("name","type","na","mean","median","min","max","nlevs")]
+
+```
+
+
+None of the variables have any missing values as expected. ApplicantIncome CoapplicantIncome and LoanAmount seem to be right skewed while Loan_Amount_term seems to be left skewed based on the mean and median values. The no of levels of the categorical variable are as required. The SingleIncome and CreditHistoryMissing variables need to be converted to factor.     
+
+```{r}
+# Convert SingleIncome to Factor
+train$SingleIncome <- factor(train$SingleIncome)
+
+# Convert CreditHistoryMissing to Factor
+train$CreditHistoryMissing <- factor(train$CreditHistoryMissing)
+
+```
+
+
+
+## Histogram of Numeric Variables 
+
+Look at the histograms to check if they are unimodal or multimodal and also distribution.     
+
+
+```{r}
+# Subset Numeric Variables
+numeric <- select_if(.tbl = train,.predicate = is.numeric)
+
+# Histogram of Numeric Variables
+for(i in 1:length(numeric)){
+        p <- qplot(x = numeric[i],main = paste("Histogram of ",names(numeric[i])),xlab = paste(names(numeric[i])))
+        print(p)
+    }
+
+rm(p,i)
+```
+
+
+None of the histograms show any sign of multimodality, but almost all of them are right skewed.    
+
+
+
+##  Barplots of Categorical Variables
+
+```{r}
+# Subset Categorical Variables
+categoric <- select_if(.tbl = train,.predicate = is.factor)
+
+# Bar plot of Categorical Variables
+for(i in 2:length(categoric)){
+        
+    plot(categoric[i],main = paste("Barplot of ",names(categoric[i])),xlab = paste(names(categoric[i])))
+        
+    }
+
+
+```
+
+
+Applicant Characteristics 
+
+Gender: Predominantly Males      
+Married: Most Yes      
+Dependents: Most 0       
+Education: Most graduates        
+Employment: Most not self employed       
+Credit_History: Most meet Credit History Guidelines     
+Property_Area: Almost equal distribution of properties between Rural, Semiurban and urban         
+
+
+
+## Numeric Variables vs Target Variable
+
+Plot each of the numeric variables by the target variable categories using a density plot. See if the density plots conditioned on the target variable leads to distinct distribution between the groups of the target variable.      
+
+
+```{r}
+# Density Plots for Numeric Variables by Target Variable
+
+for(i in 1:length(numeric)){
+    
+    p <- ggplot(data = numeric,mapping = aes(numeric[i],color = train$Loan_Status)) + geom_density() + xlab(paste(names(numeric[i]))) + 
+        ggtitle(paste("Density plot of ", names(numeric[i]), " by Loan Status"))
+    
+    print(p)
+}
+
+rm(p,i)
+```
+
+
+None of the numeric variables show any clear differentiation in distributions when conditioned on the target variable. In some areas the density does fluctuate but in general the distributions overlap.     
+
+
+
+
+
+
+## Categorical Variables vs Target Variable
+
+We can check the relationship between the categorical variables and target variables using the Chi Square Test of Independence. The null hypothesis is that the variables are independent. In categorical variables where we have added NA's we will remove those observations while checking for independence. 
+
+
+
+```{r}
+# Names of Categorical Variables
+names(categoric)
+
+# Gender vs Loan_Status
+chisq.test(x = train$Gender[train$Gender!="NA"],y = train$Loan_Status[train$Gender!="NA"]) # p value - 0.669 Independent
+
+# Married vs Loan_Status
+chisq.test(x = train$Married[train$Married!="NA"],y = train$Loan_Status[train$Married!="NA"]) # p value of 0.04104 Dependent 
+
+
+# Dependents vs Loan_Status
+chisq.test(x = train$Dependents[train$Dependents!="NA"],y = train$Loan_Status[train$Dependents!="NA"]) # p value of 0.587 Independent 
+
+
+# Education vs Loan_Status
+chisq.test(x = train$Education[train$Education!="NA"],y = train$Loan_Status[train$Education!="NA"]) # p value of 0.08395 Independent 
+
+
+
+# Self Employed vs Loan_Status
+chisq.test(x = train$Self_Employed[train$Self_Employed!="NA"],y = train$Loan_Status[train$Self_Employed!="NA"]) # p value of 0.3981 Independent 
+
+
+
+# CreditHistory vs Loan_Status
+chisq.test(x = train$Credit_History[train$Credit_History!="NA"],y = train$Loan_Status[train$Credit_History!="NA"]) # p value of 2.2e-16 Dependent 
+
+
+# PropertyArea vs Loan_Status
+chisq.test(x = train$Property_Area[train$Property_Area!="NA"],y = train$Loan_Status[train$Property_Area!="NA"]) # p value of 0.01205 Dependent 
+
+
+# CreditHistoryMissing vs Loan_Status
+chisq.test(x = train$CreditHistoryMissing,y = train$Loan_Status) # p value of 0.3572 Independent 
+
+
+# LoanAmountMissing vs Loan_Status
+chisq.test(x = train$LoanAmountMissing,y = train$Loan_Status) # p value of 0.2461 Independent 
+
+
+
+# LoanAmountTermMissing vs Loan_Status
+chisq.test(x = train$LoanAmountTermMissing,y = train$Loan_Status) # p value of 0.6392 Independent 
+
+
+
+# SingleIncome vs Loan_Status
+chisq.test(x = train$SingleIncome,y = train$Loan_Status) # p value of 0.1079 Independent 
+
+```
+
+
+
+Whether an applicant is married or not, if their credithistory is available or not and the property Area seems to be variables that are not independent of the loan status.       
+
+
+
+## Correlation Between Predictors
+
+Check the correlation between numeric predictors using scatterplot matrix.     
+
+```{r}
+# Scatterplot Matrix
+pairs(x = numeric)
+
+rm(numeric,categoric)
+```
+
+There are not any significant correlations present among the numeric variables.    
+
+
+
+# Modeling With Feature Selection
+
+Initially we model using algorithms that would be used for twoclass problem on the imputed training set. The measure we use to evaluate model fit is accuracy since it has been specified with the problem statement. Since we do not have a lot of features in this dataset, feature selection using Wrapper method is used.    
+
+
+Installing the MLR Library for modeling and set seed. Also we create a task which will be used for the models.  
+
+```{r}
+# Install Library
+require(mlr)
+
+# Set Seed
+set.seed(1)
+
+# Create Task for Training Set
+trainTask <- makeClassifTask(data = train[-1],target = "Loan_Status",positive = "Y") # Remove first column since it is an ID
+
+
+```
+      
+      
+      
+## Prepare Test Set
+
+We also prepare the test set with the preprocessing which is applied to the training set and feature creation. Any parameters which were estimated on training set e.g. median for imputation will be used as is without restimation for the test set. 
+
+
+### Plausibility of Values
+
+```{r Plausible Values Test Set}
+## Rule for Dependents
+rule1 <- editrules::editset(expression(Dependents %in% c("0","1","2","3+")))
+
+## Applying Rule on Test Set
+rule1Violate <- editrules::violatedEdits(E = rule1,test)
+
+## Checking Violations
+summary(rule1Violate) # No violations 
+
+
+
+# ApplicantIncome Variable
+## Generate Rule 
+rule2 <- editrules::editset(expression(ApplicantIncome >= 0))
+
+## Apply Rule on Test
+rule2Violate <- editrules::violatedEdits(E = rule2,test)
+
+## Check Violations
+summary(rule2Violate)# No Violations 
+
+
+
+
+# CoapplicantIncome Variable
+## Generate Rule 
+rule3 <- editrules::editset(expression(CoapplicantIncome >= 0))
+
+## Apply Rule on Test
+rule3Violate <- editrules::violatedEdits(E = rule3,test)
+
+## Check Violations
+summary(rule3Violate)# No Violations 
+
+
+
+
+
+# Loan Amount Variable
+## Generate Rule 
+rule4 <- editrules::editset(expression(LoanAmount > 0))
+
+## Apply Rule on Test
+rule4Violate <- editrules::violatedEdits(E = rule4,test)
+
+## Check Violations
+summary(rule4Violate)# No Violations but 17 NA
+
+
+
+
+
+
+# Loan Amount Term Variable
+## Generate Rule 
+rule5 <- editrules::editset(expression(Loan_Amount_Term > 0))
+
+## Apply Rule on Train
+rule5Violate <- editrules::violatedEdits(E = rule5,test)
+
+## Check Violations
+summary(rule5Violate)# No Violations but 13 NA
+
+
+
+rm(rule1,rule2,rule3,rule4,rule5,rule1Violate,rule2Violate,rule3Violate,rule4Violate,rule5Violate)
+
+```
+
+
+### Missing Values
+
+```{r Missing Values Check Test Set}
+# Check for Missing Values
+summary(is.na(test))
+
+# Check Structure of Test Set
+str(test)
+```
+
+
+Similar to the Training Set Credit_History has NA values, LoanAmount and Loan_Amount_Term has missing values. Additionally, Gender Married Dependents and SelfEmployed variables have a level "".    
+
+
+
+Transforming the CreditHistory variable by setting NA as a level.    
+
+```{r Credit History Test Set}
+# Convert Variable to Character
+test$Credit_History <- as.character(test$Credit_History)
+
+# Replace rows with NA as "NA"
+test$Credit_History[is.na(test$Credit_History)] <- "NA"
+
+# Convert Variable to Factor with new Levels
+test$Credit_History <- factor(x = test$Credit_History,levels = c("0","1","NA"))
+
+# Check Conversion
+str(test$Credit_History)
+
+# Create Dummy Variable
+test <- mutate(.data = test,CreditHistoryMissing = if_else(condition = Credit_History=="NA",true = 1,false = 0))
+
+
+```
+
+
+
+Replace the missing values in Loan_Amount and Loan_Amount_Term with the respective medians calculated with the training set.     
+
+```{r Loan Amount & Loan Amount Term Test Set}
+
+# Creating Dummy Variable LoanAmountMissing and LoanAmountTermMissing
+test <- mutate(.data = test,LoanAmountMissing = factor(if_else(condition = is.na(LoanAmount),true = TRUE,false = FALSE)),LoanAmountTermMissing = factor(if_else(condition = is.na(Loan_Amount_Term),true = TRUE,false = FALSE)))
+
+
+# Replace Loan Amount with Median
+test$LoanAmount <- replace_na(data = test$LoanAmount,replace = loanAmountMedian)
+
+# Replace Loan Amount Term with Median
+test$Loan_Amount_Term <- replace_na(data = test$Loan_Amount_Term,replace = loanAmountTermMedian)
+
+str(test)
+
+```
+
+
+Convert the "" levels in Gender, Dependents, Married and Self_Employed to NA level.   
+
+
+```{r Categorical NA Test Set}
+# Gender
+levels(test$Gender)
+levels(test$Gender)[1] <- "NA"
+
+# Married
+levels(test$Married)
+levels(test$Married)[1] <- "NA"
+
+# Dependents
+levels(test$Dependents)
+levels(test$Dependents)[1] <- "NA"
+
+# Self Employed
+levels(test$Self_Employed)
+levels(test$Self_Employed)[1] <- "NA"
+
+str(test)
+
+```
+
+
+
+### Feature Engineering
+
+```{r Feature Engineering Test Set}
+# Create Features
+test <- mutate(.data = test,SingleIncome = if_else(condition = ApplicantIncome > 0 & CoapplicantIncome > 0,true = 0,false = 1),TotalIncome = ApplicantIncome + CoapplicantIncome,AppLOI = (LoanAmount*1000) / ApplicantIncome,TotalLOI = (LoanAmount*1000) / TotalIncome)
+
+
+# Shift Target Feature to End
+## Location of Target Feature is 13th column in data frame
+test <- test[,c(1:12,14:20,13)]
+
+rm(loanAmountMedian,loanAmountTermMedian)
+
+
+# Converting SingleIncome and CreditHistoryMissing as Factor Variables
+
+# Convert SingleIncome to Factor
+test$SingleIncome <- factor(test$SingleIncome)
+
+# Convert CreditHistoryMissing to Factor
+test$CreditHistoryMissing <- factor(test$CreditHistoryMissing)
+
+
+str(test)
+
+```
+
+
+The last step is to create a task for the test set
+
+```{r}
+# Create Task for Test Set
+testTask <- makeClassifTask(data = test[-1],target = "Loan_Status",positive = "Y")
+
+```
+
+
+
+
+
+
+## Random Forest 
+
+### Random Forest - Default
+
+Applying the default Random Forest model from the package Random Forest. 
+
+```{r Random Forest Default}
+# Create Learner
+rForest <- makeLearner("classif.randomForest",fix.factors.prediction = TRUE)
+
+# Create 5 Fold CV
+rdesc <- makeResampleDesc(method = "CV",iters = 5,stratify = TRUE)
+
+# Carry out 5 fold cross validation
+res <- resample(learner = rForest,task = trainTask,resampling = rdesc,measures = list(acc,f1),models = TRUE,show.info = TRUE)
+
+# Check Best Model
+res$measures.test
+
+
+# Extract 2nd Model from CV
+rforestModel <- res$models[[2]]
+
+
+
+
+# Predict on Test Set
+pr <- predict(object = rforestModel,newdata = test[-1])
+
+
+# Accuracy on Test Set
+performance(pred = pr,measures = list(acc,f1)) # acc - 0.8032
+
+
+# Confusion Matrix
+calculateConfusionMatrix(pr)
+
+
+# Additionally we can get important features from Model
+getFeatureImportance(rforestModel)
+
+
+rm(pr,rdesc,res,rforestModel,rForest)
+```
+
+
+The default random Forest model gives an accuracy of 0.7786 on the test set.
+
+
+
+
+### Random Forest - Tuned
+
+Create a tuned Random Forest model 
+
+
+```{r Random Forest Tuned}
+# Create Learner
+rForestTuned <- makeLearner("classif.randomForest",fix.factors.prediction = TRUE)
+
+
+# Check Tuning Parameters
+getParamSet(rForestTuned) # ntree 1 to 1000 and mtry 1 to 15 and nodesize 1 to 100
+
+
+# Create 5 Fold CV for Tuning
+rdesc <- makeResampleDesc(method = "CV",iters = 5,stratify = TRUE)
+
+# Create Tune Parameters
+rfParam <- makeParamSet(makeIntegerParam("ntree",lower = 1,upper = 1000),
+                       makeIntegerParam("mtry",lower = 1,upper = 15),
+                       makeIntegerParam("nodesize",lower = 1,upper = 100))
+
+
+# Tune the Model Parameters
+rfTune <- tuneParams(learner = rForestTuned,task = trainTask,resampling = rdesc,
+                    measures = list(acc,f1),par.set = rfParam,control = makeTuneControlRandom(maxit = 20L),show.info = FALSE)
+
+
+# Get Tuning Result
+rfTune
+
+
+# Update Learner With Paramset
+rForestTuned <- setHyperPars(learner = rForestTuned,ntree = rfTune$x$ntree,mtry = rfTune$x$mtry,nodesize = rfTune$x$nodesize)
+
+rForestTuned
+
+
+# Train Tuned Model on Training Set
+rfForestTunedModel <- mlr::train(learner = rForestTuned,task = trainTask)
+
+
+# Predict on Test Set
+pr <- predict(object = rfForestTunedModel,newdata = test[-1])
+
+
+# Accuracy on Test Set
+performance(pred = pr,measures = list(acc,f1)) # acc - 0.78688
+
+
+# Confusion Matrix
+calculateConfusionMatrix(pr)
+
+rm(pr,rdesc,rfForestTunedModel,rForestTuned,rfTune,rfParam)
+
+```
+
+The Tuned Random Forest Model gives an accuracy of 0.7868
+
+
+
+
+## Decision Tree
+
+
+### Decision Tree - Default
+
+We use the decision tree algorithm with default parameters from the RPart package to fit the model.  
+
+```{r Decision Tree Default}
+# Create Learner
+dtlrn <- makeLearner(cl = "classif.rpart")
+
+# Create 5 Fold Cross validation
+rdesc <- makeResampleDesc("CV",iters = 5,stratify = TRUE)
+
+# Run CV
+res <- resample(learner = dtlrn,task = trainTask,resampling = rdesc,
+                measures = list(acc,f1),models = TRUE)
+
+# Train the Model
+dtModel <- mlr::train(learner = dtlrn,task = trainTask)
+
+# Predict on Test Set
+pr <- predict(object = dtModel,newdata = test[-1])
+
+# Calculate Performance 
+performance(pred = pr,measures = list(acc,f1))
+
+# Confusion Matrix
+calculateConfusionMatrix(pr)
+
+
+rm(dtlrn,dtModel,pr,rdesc,res)
+
+```
+
+The decision tree gives a accuracy of 0.7786 on the test set.    
+
+
+
+### Decision Tree - Tuned
+
+We use the decision tree algorithm with tuned parameters from the RPart package to fit the model.  
+
+
+```{r Decision Tree Tuned}
+# Create Decision Tree Learner
+dtTunedlrn <- makeLearner(cl = "classif.rpart") 
+
+# Create 5 Fold CV for Tuning Parameters
+rdesc <- makeResampleDesc("CV",iters = 5,stratify = TRUE)
+
+
+# Get Tune Parameters
+getParamSet(dtTunedlrn)# tune minsplit 1 to 5000 and maxdepth 1 to 30 and cp 0 to 1
+
+# Create Parameters for Tune
+dtParam <- makeParamSet(makeIntegerParam(id = "minsplit",lower = 1,upper = 5000),
+                        makeIntegerParam(id = "cp",lower = 0,upper = 1),
+                        makeIntegerParam(id = "maxdepth",lower = 1,upper = 30))
+
+
+# Tune Parameters Using 5 CV
+set.seed(23434)
+dtTune <- tuneParams(learner = dtTunedlrn,task = trainTask,resampling = rdesc,measures = list(acc,f1),par.set = dtParam,control = makeTuneControlRandom(maxit = 30L),show.info = FALSE)
+
+dtTune
+
+
+# Update Learner With Parameters
+dtTunedlrn <- setHyperPars(learner = dtTunedlrn,minsplit = dtTune$x$minsplit,
+                           cp = dtTune$x$cp,maxdepth = dtTune$x$maxdepth)
+
+
+# Train the Learner on Train Set
+dtTuneModel <- mlr::train(learner = dtTunedlrn,task = trainTask)
+
+# Predict on Test Set
+pred <- predict(dtTuneModel,task = testTask)
+
+# Performance on Test Set
+performance(pred = pred,measures = list(acc,f1))
+
+# Confusion Matrix
+calculateConfusionMatrix(pred)
+
+
+# Decision Tree Model
+rpart.plot::rpart.plot(dtTuneModel$learner.model)
+
+
+rm(dtParam,dtTune,dtTunedlrn,dtTuneModel,pred,rdesc)
+
+```
+
+
+
+The tuned decision tree gives an accuracy of 0.8032 on the test set.     
+
+
+
+
+### Decision Tree - Wrapped Learner
+
+Implement a decision tree with a wrapped learner for feature selection.    
+
+```{r Decision Tree Wrapped Learner}
+# Create 3 Fold CV for Feature Selection
+rdesc <- makeResampleDesc("CV",iters = 3)
+
+# Create Wrapped Learner 
+dtWrap <- makeFeatSelWrapper(learner = "classif.rpart",resampling = rdesc,measures = list(acc,f1),control = makeFeatSelControlRandom(maxit = 20L),show.info = FALSE)
+
+
+# Create new CV for Model Training
+rdesc <- makeResampleDesc("CV",iters = 5,stratify = TRUE)
+
+# Train Model using CV
+res <- resample(learner = dtWrap,task = trainTask,resampling = rdesc,measures = list(acc,f1),models = TRUE,extract = getFeatSelResult,show.info = FALSE)
+
+
+# Check Model Performance
+res$extract
+res$measures.test
+
+
+# Predict on Test Set
+dtWrapModel <- res$models[[2]]
+pr <- predict(object = dtWrapModel,task = testTask)
+
+# Performance on Test Data
+performance(pr,measures = list(acc,f1))
+
+# Confusion Matrix 
+calculateConfusionMatrix(pr)
+
+
+rm(dtWrap,dtWrapModel,pr,rdesc,res)
+
+```
+
+
+The wrapped model gives an accuracy of 0.8032 on the test set.     
+
+
+
+
+## K Nearest Neighbors
+
+### Nearest Neighbor - Default
+
+We use the Nearest Neighbor algorithm with default parameters from the RWeka package to fit the model. This package is used because it handles the factor variables by default. 
+
+```{r Nearest Neighbor Default}
+# Create Learner
+knnlrn <- makeLearner(cl = "classif.IBk")
+
+# Create 5 Fold Cross validation
+rdesc <- makeResampleDesc("CV",iters = 5,stratify = TRUE)
+
+# Run CV
+res <- resample(learner = knnlrn,task = trainTask,resampling = rdesc,
+                measures = list(acc,f1),models = TRUE)
+
+# Train the Model
+knnModel <- mlr::train(learner = knnlrn,task = trainTask)
+
+# Predict on Test Set
+pr <- predict(object = knnModel,task = testTask)
+
+# Calculate Performance 
+performance(pred = pr,measures = list(acc,f1))
+
+# Confusion Matrix
+calculateConfusionMatrix(pr)
+
+
+rm(knnlrn,knnModel,pr,rdesc,res)
+
+```
+
+The Nearest Neighbor algorithm gives a accuracy of 0.6967 on the test set.    
+
+
+
+### Nearest Neighbor - Tuned
+
+We use the Nearest neighbor algorithm with tuned parameters from the RWeka package to fit the model.  
+
+
+```{r Nearest Neighbor Tuned}
+# Create Knn Learner
+knnTunedlrn <- makeLearner(cl = "classif.IBk") 
+
+# Create 3 Fold CV for Tuning Parameters
+rdesc <- makeResampleDesc("CV",iters = 3,stratify = TRUE)
+
+
+# Get Tune Parameters
+getParamSet(knnTunedlrn)# k 1 to 1000
+
+# Create Parameters for Tune
+knnParam <- makeParamSet(makeIntegerParam(id = "K",lower = 1,upper = 1000))
+knnParam
+
+# Tune Parameters Using 3 CV
+set.seed(121)
+knnTune <- tuneParams(learner = knnTunedlrn,task = trainTask,resampling = rdesc,measures = list(acc,f1),par.set = knnParam,control = makeTuneControlRandom(maxit = 30L),show.info = FALSE)
+
+knnTune
+
+
+# Update Learner With Parameters
+knnTunedlrn <- setHyperPars(learner = knnTunedlrn,K = knnTune$x$K)
+
+
+# Train the Learner on Train Set
+knnTuneModel <- mlr::train(learner = knnTunedlrn,task = trainTask)
+
+# Predict on Test Set
+pred <- predict(knnTuneModel,task = testTask)
+
+# Performance on Test Set
+performance(pred = pred,measures = list(acc,f1))
+
+# Confusion Matrix
+calculateConfusionMatrix(pred)
+
+rm(knnTunedlrn,knnTune,knnTuneModel,knnParam,pred,rdesc)
+
+```
+
+
+
+The tuned Nearest Neighbor gives an accuracy of 0.7213 on the test set.     
+
+
+
+
+### Nearest Neighbor - Wrapped Learner
+
+Implement a Nearest Neighbor with a wrapped learner for feature selection.    
+
+```{r Nearest Neighbor Wrapped Learner}
+# Create 3 Fold CV for Feature Selection
+rdesc <- makeResampleDesc("CV",iters = 3)
+
+# Create Wrapped Learner 
+knnWrap <- makeFeatSelWrapper(learner = "classif.IBk",resampling = rdesc,measures = list(acc,f1),control = makeFeatSelControlRandom(maxit = 20L),show.info = FALSE)
+
+
+# Create new CV for Model Training
+out.rdesc <- makeResampleDesc("CV",iters = 5,stratify = TRUE)
+
+# Train Model using CV
+res <- resample(learner = knnWrap,task = trainTask,resampling = out.rdesc,measures = list(acc,f1),models = TRUE,extract = getFeatSelResult,show.info = FALSE)
+
+
+# Check Model Performance
+res$extract
+res$measures.test
+
+
+# Predict on Test Set
+knnWrapModel <- res$models[[4]]
+pr <- predict(object = knnWrapModel,task = testTask)
+
+# Performance on Test Data
+performance(pr,measures = list(acc,f1))
+
+# Confusion Matrix 
+calculateConfusionMatrix(pr)
+
+
+# Features Selected
+getFeatSelResult(knnWrapModel)
+
+
+rm(knnWrap,knnWrapModel,out.rdesc,rdesc,pr,res)
+
+```
+
+
+The wrapped model gives an accuracy of 0.7950 on the test set.     
+
+
+
+
+
+## Logistic Regression
+
+Logistic regression model from stats package is used. 
+
+```{r Logistic Regression Default}
+# Create Learner
+loglrn <- makeLearner(cl = "classif.logreg")
+
+# Create 5 Fold Cross validation
+rdesc <- makeResampleDesc("CV",iters = 5,stratify = TRUE)
+
+# Run CV
+res <- resample(learner = loglrn,task = trainTask,resampling = rdesc,
+                measures = list(acc,f1),models = TRUE)
+
+# Train the Model
+logModel <- mlr::train(learner = loglrn,task = trainTask)
+
+# Predict on Test Set
+pr <- predict(object = logModel,task = testTask)
+
+# Calculate Performance 
+performance(pred = pr,measures = list(acc,f1))
+
+# Confusion Matrix
+calculateConfusionMatrix(pr)
+
+
+rm(logModel,loglrn,rdesc,res,pr)
+
+```
+
+The Logistic Regression algorithm gives a accuracy of 0.7868 on the test set.    
+
+
+
+
+
+## Naive Bayes
+
+### Naive Bayes - Default
+
+We use the Naive Bayes algorithm with from the e1071 package. 
+
+```{r Naive Bayes Default}
+# Create Learner
+naivelrn <- makeLearner(cl = "classif.naiveBayes")
+
+# Create 5 Fold Cross validation
+rdesc <- makeResampleDesc("CV",iters = 5,stratify = TRUE)
+
+# Run CV
+res <- resample(learner = naivelrn,task = trainTask,resampling = rdesc,
+                measures = list(acc,f1),models = TRUE)
+
+# Train the Model
+naiveModel <- mlr::train(learner = naivelrn,task = trainTask)
+
+# Predict on Test Set
+pr <- predict(object = naiveModel,task = testTask)
+
+# Calculate Performance 
+performance(pred = pr,measures = list(acc,f1))
+
+# Confusion Matrix
+calculateConfusionMatrix(pr)
+
+
+rm(pr,naiveModel,naivelrn,res,rdesc)
+
+```
+
+The Naive Bayes algorithm gives a accuracy of 0.7049 on the test set.    
+
+
+
+### Naive Bayes - Tuned
+
+We use the Naive Bayes algorithm with tuned parameters. 
+
+
+```{r Naive Bayes Tuned}
+# Create naive Learner
+naiveTunedlrn <- makeLearner(cl = "classif.naiveBayes") 
+
+# Create 3 Fold CV for Tuning Parameters
+rdesc <- makeResampleDesc("CV",iters = 3)
+
+
+# Get Tune Parameters
+getParamSet(naiveTunedlrn)# laplace 0 to 1000
+
+# Create Parameters for Tune
+naiveParam <- makeParamSet(makeNumericParam(id = "laplace",lower = 0,upper = 1000))
+naiveParam
+
+# Tune Parameters Using 3 CV
+set.seed(1215)
+naiveTune <- tuneParams(learner = naiveTunedlrn,task = trainTask,resampling = rdesc,measures = list(acc,f1),par.set = naiveParam,control = makeTuneControlRandom(maxit = 30L),show.info = FALSE)
+
+naiveTune
+
+
+# Update Learner With Parameters
+naiveTunedlrn <- setHyperPars(learner = naiveTunedlrn,laplace = naiveTune$x$laplace)
+
+
+# Train the Learner on Train Set
+naiveTuneModel <- mlr::train(learner = naiveTunedlrn,task = trainTask)
+
+# Predict on Test Set
+pred <- predict(naiveTuneModel,task = testTask)
+
+# Performance on Test Set
+performance(pred = pred,measures = list(acc,f1))
+
+# Confusion Matrix
+calculateConfusionMatrix(pred)
+
+rm(pr,naiveTuneModel,naiveTunedlrn,res,rdesc,naiveTune,naiveParam,pred)
+
+```
+
+
+
+The tuned model gives an accuracy of 0.6721.    
+
+
+
+
+
+### Naive Bayes - Wrapped Learner
+
+Implement a Naive Bayes with a wrapped learner for feature selection.    
+
+```{r Naive Bayes Wrapped Learner}
+
+set.seed(193884)
+# Create 3 Fold CV for Feature Selection
+rdesc <- makeResampleDesc("CV",iters = 3)
+
+
+# Create Wrapped Learner 
+naiveWrap <- makeFeatSelWrapper(learner = "classif.naiveBayes",resampling = rdesc,measures = list(acc,f1),control = makeFeatSelControlRandom(maxit = 20L),show.info = FALSE)
+
+
+# Create new CV for Model Training
+out.rdesc <- makeResampleDesc("CV",iters = 5,stratify = TRUE)
+
+# Train Model using CV
+
+res <- resample(learner = naiveWrap,task = trainTask,resampling = out.rdesc,measures = list(acc,f1),models = TRUE,extract = getFeatSelResult,show.info = FALSE)
+
+
+# Check Model Performance
+res$extract
+res$measures.test
+
+
+# Predict on Test Set
+naiveWrapModel <- res$models[[1]]
+pr <- predict(object = naiveWrapModel,task = testTask)
+
+# Performance on Test Data
+performance(pr,measures = list(acc,f1))
+
+
+# Confusion Matrix 
+calculateConfusionMatrix(pr)
+
+# Features Selected
+getFeatSelResult(naiveWrapModel)
+
+# Model 
+naiveWrapModel
+
+rm(naiveWrap,out.rdesc,rdesc,pr,res,naiveWrapModel)
+
+```
+
+
+The wrapped model gives an accuracy of 0.8032 on the test set.     
+
+
+
+# Best Model
+
+From the models used the Random Forest, Tuned Decision tree and Wrapped Naive Bayes model give the same accuracy of 0.8032 on the test set.     
+
+
+# Future Actions
+
+Steps can be taken to try and improve the model performance on this data. The models are performing poorly on data with the target variable 'N', which has lower representation in the sample. So the class imbalance may be affecting the model performance. Some of the possible solutions which will be explored in future are: 
+
+* Use class imbalance techniques like sampling.    
+* We tuned the models with accuracy as the parameter, but we can try other measures like f1 score or AUC, which may help with the imbalanced data. 
+* Use ensemble methods especially boosting to try and work on the misclassified sampels.     
+
+
+As these options are explored the models will be added here.    
+
